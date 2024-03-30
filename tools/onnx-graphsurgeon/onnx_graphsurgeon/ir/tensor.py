@@ -80,12 +80,14 @@ class Tensor(object):
         self.data_location = data_location
         return self
 
-    def to_variable(self, dtype: np.dtype = None, shape: Sequence[Union[int, str]] = []):
+    def to_variable(
+        self, dtype: Union[np.dtype, "onnx.TensorProto.DataType"] = None, shape: Sequence[Union[int, str]] = []
+    ):
         """
         Modifies this tensor in-place to convert it to a Variable. This means that all consumers/producers of the tensor will see the update.
 
         Args:
-            dtype (np.dtype): The data type of the tensor.
+            dtype (Union[numpy.dtype, onnx.TensorProto.DataType]): The data type of the tensor.
             shape (Sequence[int]): The shape of the tensor.
 
         Returns:
@@ -155,22 +157,25 @@ class Variable(Tensor):
     def empty():
         return Variable(name="")
 
-    def __init__(self, name: str, dtype: np.dtype = None, shape: Sequence[Union[int, str]] = None, type: str = "tensor_type",):
+    def __init__(
+        self,
+        name: str,
+        dtype: Union[np.dtype, "onnx.TensorProto.DataType"] = None,
+        shape: Sequence[Union[int, str]] = None,
+    ):
         """
         Represents a Tensor whose value is not known until inference-time.
 
         Args:
             name (str): The name of the tensor.
-            dtype (numpy.dtype): The data type of the tensor.
+            dtype (Union[numpy.dtype, onnx.TensorProto.DataType]): The data type of the tensor.
             shape (Sequence[Union[int, str]]): The shape of the tensor. This may contain strings if the model uses dimension parameters.
-            type (str): The type of the tensor.
         """
         self.name = name
         self.inputs = misc.SynchronizedList(self, field_name="outputs", initial=[])
         self.outputs = misc.SynchronizedList(self, field_name="inputs", initial=[])
         self.dtype = dtype
         self.shape = misc.default_value(shape, None)
-        self.type = type
 
     def to_constant(self, values: np.ndarray):
         del self.dtype
@@ -196,12 +201,12 @@ class LazyValues(object):
         Args:
             tensor (onnx.TensorProto): The ONNX tensor that this instance should lazily load.
         """
-        from onnx_graphsurgeon.importers.onnx_importer import get_onnx_tensor_shape, get_onnx_tensor_dtype
+        from onnx_graphsurgeon.importers.onnx_importer import get_onnx_tensor_shape, get_onnx_tensor_dtype, get_itemsize
 
         self.tensor = tensor
         self.shape = get_onnx_tensor_shape(self.tensor)
         self.dtype = get_onnx_tensor_dtype(self.tensor)
-        self.nbytes = misc.volume(self.shape) * self.dtype.itemsize
+        self.nbytes = misc.volume(self.shape) * get_itemsize(self.dtype)
 
     def load(self):
         """
@@ -212,6 +217,15 @@ class LazyValues(object):
         """
         import onnx
         import onnx.numpy_helper
+        from onnx_graphsurgeon.importers.onnx_importer import get_dtype_name, get_numpy_type
+
+        if get_numpy_type(self.dtype) is None:
+            G_LOGGER.warning(
+                f"Datatype: {get_dtype_name(self.dtype)} could not be converted to a NumPy type.\n"
+                f"Accessing the values of this constant tensor ({self.tensor.name}) will cause them to be casted to a supported data type. "
+                f"This means that the weights will have a different type than the original model when they are exported again!\n"
+                f"If this is not what you intended, please avoid accessing the values of this constant tensor."
+            )
 
         return np.array(onnx.numpy_helper.to_array(self.tensor))
 
@@ -276,7 +290,7 @@ class Constant(Tensor):
 
     @property
     def dtype(self):
-        return self._values.dtype.type
+        return self._values.dtype
 
     def __repr__(self):  # Hack to make logging output pretty.
         ret = self.__str__()

@@ -16,7 +16,6 @@
 #
 
 import sys
-import onnx_graphsurgeon
 from setuptools import setup, find_packages
 
 
@@ -37,7 +36,8 @@ def main():
     no_publish()
     setup(
         name="onnx_graphsurgeon",
-        version=onnx_graphsurgeon.__version__,
+        # version=onnx_graphsurgeon.__version__,
+        version="0.3.27",
         description="ONNX GraphSurgeon",
         long_description=open("README.md", "r", encoding="utf-8").read(),
         license="Apache 2.0",

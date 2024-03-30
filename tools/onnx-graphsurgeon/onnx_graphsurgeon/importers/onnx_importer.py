@@ -26,7 +26,7 @@ from onnx_graphsurgeon.importers.base_importer import BaseImporter
 from onnx_graphsurgeon.ir.graph import Graph
 from onnx_graphsurgeon.ir.node import Node
 from onnx_graphsurgeon.ir.tensor import Constant, LazyValues, Tensor, Variable
-from onnx_graphsurgeon.logger.logger import G_LOGGER
+from onnx_graphsurgeon.logger.logger import G_LOGGER, LogMode
 from onnx_graphsurgeon.util import misc
 
 # Maps values from the AttributeType enum to their string representations, e.g., {1: "FLOAT"}
@@ -62,48 +62,49 @@ def get_onnx_tensor_shape(onnx_tensor: Union[onnx.ValueInfoProto, onnx.TensorPro
     return shape
 
 
-def get_onnx_tensor_dtype(onnx_tensor: Union[onnx.ValueInfoProto, onnx.TensorProto]) -> np.dtype:
-    if isinstance(onnx_tensor, onnx.TensorProto):
-        onnx_dtype = onnx_tensor.data_type
-    else:
-        if onnx_tensor.type.HasField("tensor_type"):
-            onnx_dtype = onnx_tensor.type.tensor_type.elem_type
-        elif onnx_tensor.type.HasField("sequence_type"):
-            onnx_dtype = onnx_tensor.type.sequence_type.elem_type.tensor_type.elem_type
-        elif onnx_tensor.type.HasField("map_type"):
-            onnx_dtype = onnx_tensor.type.map_type.value_type
-        elif onnx_tensor.type.HasField("optional_type"):
-            onnx_dtype = onnx_tensor.type.optional_type.elem_type
-        elif onnx_tensor.type.HasField("sparse_tensor_type"):
-            onnx_dtype = onnx_tensor.type.sparse_tensor_type.elem_type
-        else:
-            onnx_dtype = onnx_tensor.type.opaque_type
-    if onnx_dtype in onnx.mapping.TENSOR_TYPE_TO_NP_TYPE:
-        return onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[onnx_dtype]
+def get_dtype_name(onnx_type):
+    return {val: key for key, val in onnx.TensorProto.DataType.items()}[onnx_type]
+
+
+def get_itemsize(dtype):
+    np_dtype = get_numpy_type(dtype)
+    if np_dtype is not None:
+        return np.dtype(np_dtype).itemsize
+
+    if dtype == onnx.TensorProto.BFLOAT16:
+        return 2
+    G_LOGGER.critical(f"Unsupported type: {dtype}")
+
+
+def get_numpy_type(onnx_type):
+    if not isinstance(onnx_type, int):
+        # Already a NumPy type
+        return onnx_type
+
+    # For some reason, TENSOR_TYPE_TO_NP_TYPE maps `bfloat16` to `float32`.
+    # This obviously breaks things, so we need to treat this as a special case.
+    if onnx_type != onnx.TensorProto.BFLOAT16 and onnx_type in onnx.mapping.TENSOR_TYPE_TO_NP_TYPE:
+        return onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[onnx_type]
     return None
 
 
-def get_onnx_tensor_type(
+def get_onnx_tensor_dtype(
     onnx_tensor: Union[onnx.ValueInfoProto, onnx.TensorProto]
-) -> str:
+) -> Union[np.dtype, "onnx.TensorProto.DataType"]:
     if isinstance(onnx_tensor, onnx.TensorProto):
-        onnx_type = "tensor_type"
+        onnx_type = onnx_tensor.data_type
     else:
-        if onnx_tensor.type.HasField("tensor_type"):
-            onnx_type = "tensor_type"
-        elif onnx_tensor.type.HasField("sequence_type"):
-            onnx_type = "sequence_type"
-        elif onnx_tensor.type.HasField("map_type"):
-            onnx_type = "map_type"
-        elif onnx_tensor.type.HasField("optional_type"):
-            onnx_type = "optional_type"
-        elif onnx_tensor.type.HasField("opaque_type"):
-            onnx_type = "opaque_type"
-        elif onnx_tensor.type.HasField("sparse_tensor_type"):
-            onnx_type = "sparse_tensor_type"
-        else:
-            onnx_type = None
+        onnx_type = onnx_tensor.type.tensor_type.elem_type
 
+    dtype = get_numpy_type(onnx_type)
+    if dtype is not None:
+        return dtype
+
+    G_LOGGER.warning(
+        f"Could not convert: {get_dtype_name(onnx_type)} to a corresponding NumPy type. "
+        f"The original ONNX type will be preserved. ",
+        mode=LogMode.ONCE,
+    )
     return onnx_type
 
 
@@ -134,7 +135,6 @@ class OnnxImporter(BaseImporter):
                 name=onnx_tensor.name,
                 dtype=get_onnx_tensor_dtype(onnx_tensor),
                 shape=get_onnx_tensor_shape(onnx_tensor),
-                type=get_onnx_tensor_type(onnx_tensor),
             )
 
     @staticmethod
