@@ -35,13 +35,14 @@ REQUIRED_PACKAGES = [
 def main():
     no_publish()
     setup(
-        name="onnx_graphsurgeon",
+        name="modlee-onnx_graphsurgeon",
         # version=onnx_graphsurgeon.__version__,
         version="0.3.27",
         description="ONNX GraphSurgeon",
         long_description=open("README.md", "r", encoding="utf-8").read(),
+        long_description_content_type="text/markdown",
         license="Apache 2.0",
-        url="https://github.com/nvidia/tensorrt/tools/onnx-graphsurgeon",
+        url="https://github.com/modlee-ai/TensorRT/tree/release/8.6/tools/onnx-graphsurgeon",
         author="NVIDIA",
         author_email="svc_tensorrt@nvidia.com",
         classifiers=[
